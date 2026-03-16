@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 
 const TILE_BASE_HP = 110;
 const GRID_SIZE = 5;
+const GAME_DURATION = 5 * 60; // 5 minutes in seconds
 
 const PERKS = ["attack", "defend", "heal", "steal"];
 const PERK_RARITY = { attack: 40, defend: 40, heal: 15, steal: 5 };
@@ -53,17 +54,16 @@ function initGrid() {
   );
 }
 
+function calcTotalHP(grid) {
+  return grid.flat().filter(t => !t.destroyed).reduce((sum, t) => sum + t.hp, 0);
+}
+
 // ─── DAMAGE CALCULATIONS ─────────────────────────────────────────────────────
 
 function applyDamageToTile(tile, rawDmg) {
   if (tile.destroyed) return tile;
   let t = { ...tile };
   let dmg = rawDmg;
-
-  // steel: first hit reduction
-  if (t.steel && !t.steelUsed) {
-    // will be handled by caller setting steelUsed
-  }
 
   if (t.shield > 0) {
     if (dmg <= t.shield) { t.shield -= dmg; dmg = 0; }
@@ -97,10 +97,8 @@ function getNeighbors(grid, row, col) {
 function applyWeapon(grid, weaponId, level, perk, target, extra) {
   let g = grid.map(row => row.map(t => ({ ...t })));
   const { row, col } = target;
-  const tile = g[row][col];
 
-  // helper: apply with steel check
-  function hitTile(r, c, dmg, isMain = false) {
+  function hitTile(r, c, dmg) {
     const t = g[r][c];
     if (!t || t.destroyed) return;
     let d = dmg;
@@ -118,28 +116,23 @@ function applyWeapon(grid, weaponId, level, perk, target, extra) {
     else if (perk === "attack") { main = 60; side = 40; }
     else if (level === 2) { main = 50; side = 35; }
     else { main = 40; side = 20; }
-    hitTile(row, col, main, true);
+    hitTile(row, col, main);
     getNeighbors(grid, row, col).forEach(n => hitTile(n.row, n.col, side));
-  }
-
-  else if (weaponId === "cannon") {
+  } else if (weaponId === "cannon") {
     let main;
     if (level === 2 && perk === "attack") { main = 100; }
     else if (perk === "attack") { main = 90; }
     else if (level === 2) { main = 75; }
     else { main = 60; }
-    hitTile(row, col, main, true);
+    hitTile(row, col, main);
     if (level === 2 && perk === "attack") {
-      // also hit strongest neighbor
       const neighbors = getNeighbors(grid, row, col).filter(n => !n.destroyed);
       if (neighbors.length) {
         const strongest = neighbors.reduce((a, b) => a.hp > b.hp ? a : b);
         hitTile(strongest.row, strongest.col, 60);
       }
     }
-  }
-
-  else if (weaponId === "missile") {
+  } else if (weaponId === "missile") {
     let dmg;
     if (level === 2 && perk === "attack") dmg = 50;
     else if (perk === "attack") dmg = 45;
@@ -156,9 +149,7 @@ function applyWeapon(grid, weaponId, level, perk, target, extra) {
         hitTile(r, c, d);
       }
     }
-  }
-
-  else if (weaponId === "rocket") {
+  } else if (weaponId === "rocket") {
     let side;
     if (level === 2 && perk === "attack") side = 45;
     else if (perk === "attack") side = 25;
@@ -182,9 +173,7 @@ function applyDefense(grid, weaponId, level, perk, target, extra) {
     else if (level === 2) amt = 80;
     else amt = 70;
     g[row][col] = { ...g[row][col], shield: (g[row][col].shield || 0) + amt };
-  }
-
-  else if (weaponId === "antimissile") {
+  } else if (weaponId === "antimissile") {
     if (perk === "defend") {
       const direction = extra?.direction || "row";
       for (let i = 0; i < GRID_SIZE; i++) {
@@ -195,13 +184,9 @@ function applyDefense(grid, weaponId, level, perk, target, extra) {
     } else {
       g[row][col] = { ...g[row][col], antimissile: true };
     }
-  }
-
-  else if (weaponId === "steel") {
+  } else if (weaponId === "steel") {
     g[row][col] = { ...g[row][col], steel: true, steelUsed: false };
-  }
-
-  else if (weaponId === "expand") {
+  } else if (weaponId === "expand") {
     let hp;
     if (level === 2 && perk === "defend") hp = 135;
     else if (perk === "defend") hp = 125;
@@ -218,13 +203,8 @@ function applyDefense(grid, weaponId, level, perk, target, extra) {
 function applyHeal(grid, weaponId, level, perk, target) {
   let g = grid.map(row => row.map(t => ({ ...t })));
   const { row, col } = target;
-  const t = g[row][col];
-  if (t.destroyed) return g;
 
-  const cap = (tile, amt) => {
-    const newHp = Math.min(tile.maxHp, tile.hp + amt);
-    return { ...tile, hp: newHp };
-  };
+  const cap = (tile, amt) => ({ ...tile, hp: Math.min(tile.maxHp, tile.hp + amt) });
 
   if (weaponId === "regenerate") {
     let main, side;
@@ -234,9 +214,7 @@ function applyHeal(grid, weaponId, level, perk, target) {
     else { main = 85; side = 10; }
     g[row][col] = cap(g[row][col], main);
     getNeighbors(grid, row, col).forEach(n => { if (!n.destroyed) g[n.row][n.col] = cap(g[n.row][n.col], side); });
-  }
-
-  else if (weaponId === "aroma") {
+  } else if (weaponId === "aroma") {
     let amt;
     if (level === 2 && perk === "heal") amt = 120;
     else if (perk === "heal") amt = 110;
@@ -244,9 +222,7 @@ function applyHeal(grid, weaponId, level, perk, target) {
     else amt = 90;
     g[row][col] = cap(g[row][col], amt);
     getNeighbors(grid, row, col).forEach(n => { if (!n.destroyed) g[n.row][n.col] = cap(g[n.row][n.col], amt); });
-  }
-
-  else if (weaponId === "quickheal") {
+  } else if (weaponId === "quickheal") {
     let side;
     if (level === 2 && perk === "heal") side = 50;
     else if (perk === "heal") side = 35;
@@ -259,14 +235,44 @@ function applyHeal(grid, weaponId, level, perk, target) {
   return g;
 }
 
-// ─── WEAPON INFO HELPER ───────────────────────────────────────────────────────
-
 function getWeaponInfo(id) { return WEAPONS.find(w => w.id === id); }
+
+// ─── TIMER HOOK ───────────────────────────────────────────────────────────────
+
+function useGameTimer(isRunning, onExpire) {
+  const [timeLeft, setTimeLeft] = useState(GAME_DURATION);
+  const intervalRef = useRef(null);
+
+  useEffect(() => {
+    if (!isRunning) return;
+    setTimeLeft(GAME_DURATION);
+  }, [isRunning]);
+
+  useEffect(() => {
+    if (!isRunning) {
+      clearInterval(intervalRef.current);
+      return;
+    }
+    intervalRef.current = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(intervalRef.current);
+          onExpire();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(intervalRef.current);
+  }, [isRunning, onExpire]);
+
+  return timeLeft;
+}
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 
 export default function App() {
-  const [phase, setPhase] = useState("intro"); // intro | perk-select | weapon-select | steal | battle | gameover
+  const [phase, setPhase] = useState("intro");
   const [currentPlayer, setCurrentPlayer] = useState(0);
   const [players, setPlayers] = useState([
     { name: "Player 1", perk: null, perkChoices: [], weapons: {}, grid: initGrid() },
@@ -275,17 +281,46 @@ export default function App() {
   const [weaponRound, setWeaponRound] = useState(0);
   const [weaponChoices, setWeaponChoices] = useState([]);
   const [log, setLog] = useState([]);
-  const [battleTurn, setBattleTurn] = useState(0); // 0 or 1
+  const [battleTurn, setBattleTurn] = useState(0);
   const [selectedWeapon, setSelectedWeapon] = useState(null);
-  const [pendingAction, setPendingAction] = useState(null); // { weaponId, step }
   const [winner, setWinner] = useState(null);
+  const [winReason, setWinReason] = useState(""); // "elimination" | "timeout"
   const [perkOptions, setPerkOptions] = useState([]);
+  const [missileDir, setMissileDir] = useState(null);
+  const [amDir, setAmDir] = useState(null);
+  const [timerActive, setTimerActive] = useState(false);
+  const [timeoutScores, setTimeoutScores] = useState(null);
 
-  // ─── PHASE: INTRO → show perk for player ───────────────────────────────────
+  const handleTimerExpire = useCallback(() => {
+    setPlayers(currentPlayers => {
+      const hp0 = calcTotalHP(currentPlayers[0].grid);
+      const hp1 = calcTotalHP(currentPlayers[1].grid);
+      setTimeoutScores({ hp0, hp1 });
+      if (hp0 > hp1) setWinner(0);
+      else if (hp1 > hp0) setWinner(1);
+      else setWinner(-1); // draw
+      setWinReason("timeout");
+      setTimerActive(false);
+      setPhase("gameover");
+      return currentPlayers;
+    });
+  }, []);
+
+  const timeLeft = useGameTimer(timerActive, handleTimerExpire);
+
+  const formatTime = (s) => {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${sec.toString().padStart(2, "0")}`;
+  };
+
+  const timerColor = timeLeft > 60 ? "#4ade80" : timeLeft > 30 ? "#facc15" : "#ef4444";
+  const timerUrgent = timeLeft <= 30;
+
+  // ─── SETUP PHASES ──────────────────────────────────────────────────────────
 
   function startGame() {
-    const options = pickTwo();
-    setPerkOptions(options);
+    setPerkOptions(pickTwo());
     setCurrentPlayer(0);
     setPhase("perk-select");
   }
@@ -296,16 +331,13 @@ export default function App() {
       p[playerIdx] = { ...p[playerIdx], perk };
       return p;
     });
-    // next player or move to weapon select for player 0
     if (playerIdx === 0) {
-      const options = pickTwo();
-      setPerkOptions(options);
+      setPerkOptions(pickTwo());
       setCurrentPlayer(1);
     } else {
       setCurrentPlayer(0);
       setWeaponRound(0);
-      const choices = randomThreeWeapons();
-      setWeaponChoices(choices);
+      setWeaponChoices(randomThreeWeapons());
       setPhase("weapon-select");
     }
   }
@@ -324,40 +356,33 @@ export default function App() {
     const nextRound = weaponRound + 1;
     if (nextRound < 5) {
       setWeaponRound(nextRound);
-      // exclude weapons already at level 2
       const currentWeapons = players[playerIdx].weapons;
       const maxed = Object.keys(currentWeapons).filter(k => currentWeapons[k] >= 2);
-      const choices = randomThreeWeapons(maxed);
-      setWeaponChoices(choices);
+      setWeaponChoices(randomThreeWeapons(maxed));
     } else {
-      // this player done
       if (playerIdx === 0) {
         setCurrentPlayer(1);
         setWeaponRound(0);
-        const choices = randomThreeWeapons();
-        setWeaponChoices(choices);
+        setWeaponChoices(randomThreeWeapons());
       } else {
-        // both done — check steal
-        const p0 = players[0];
-        if (p0.perk === "steal") {
+        if (players[0].perk === "steal") {
           setPhase("steal");
         } else {
           setPhase("battle");
           setBattleTurn(0);
+          setTimerActive(true);
         }
       }
     }
   }
 
   function performSteal(weaponId) {
-    // swap player 0's weapon with player 1's same-level weapon
     setPlayers(prev => {
       const p = [...prev];
       const p0 = { ...p[0], weapons: { ...p[0].weapons } };
       const p1 = { ...p[1], weapons: { ...p[1].weapons } };
       const level = p1.weapons[weaponId];
       if (!level) return prev;
-      // find a weapon of player 0 at same level to swap
       const swapId = Object.keys(p0.weapons).find(k => p0.weapons[k] === level);
       if (swapId) {
         p0.weapons[weaponId] = level;
@@ -365,7 +390,6 @@ export default function App() {
         p1.weapons[swapId] = level;
         delete p1.weapons[weaponId];
       } else {
-        // just add it
         p0.weapons[weaponId] = level;
         delete p1.weapons[weaponId];
       }
@@ -374,6 +398,7 @@ export default function App() {
     });
     setPhase("battle");
     setBattleTurn(0);
+    setTimerActive(true);
   }
 
   // ─── BATTLE ────────────────────────────────────────────────────────────────
@@ -402,23 +427,19 @@ export default function App() {
     let newP1grid = players[1].grid.map(r => r.map(t => ({ ...t })));
 
     if (info.type === "a") {
-      // attack on opponent
       const oldGrid = defender === 0 ? newP0grid : newP1grid;
       const newGrid = applyWeapon(oldGrid, weaponId, level, perk, target, extra);
-      if (defender === 0) newP0grid = newGrid;
-      else newP1grid = newGrid;
-      addLog(`${player.name} used ${info.label} on opponent tile (${targetRow},${targetCol})`);
+      if (defender === 0) newP0grid = newGrid; else newP1grid = newGrid;
+      addLog(`${player.name} used ${info.label} on opponent (${targetRow},${targetCol})`);
     } else if (info.type === "d") {
       const oldGrid = attacker === 0 ? newP0grid : newP1grid;
       const newGrid = applyDefense(oldGrid, weaponId, level, perk, target, extra);
-      if (attacker === 0) newP0grid = newGrid;
-      else newP1grid = newGrid;
+      if (attacker === 0) newP0grid = newGrid; else newP1grid = newGrid;
       addLog(`${player.name} used ${info.label} on own tile (${targetRow},${targetCol})`);
     } else if (info.type === "h") {
       const oldGrid = attacker === 0 ? newP0grid : newP1grid;
       const newGrid = applyHeal(oldGrid, weaponId, level, perk, target);
-      if (attacker === 0) newP0grid = newGrid;
-      else newP1grid = newGrid;
+      if (attacker === 0) newP0grid = newGrid; else newP1grid = newGrid;
       addLog(`${player.name} used ${info.label} on own tile (${targetRow},${targetCol})`);
     }
 
@@ -431,103 +452,34 @@ export default function App() {
     });
 
     if (w !== null) {
+      setTimerActive(false);
       setWinner(w);
+      setWinReason("elimination");
       setPhase("gameover");
     } else {
       setBattleTurn(1 - battleTurn);
       setSelectedWeapon(null);
-      setPendingAction(null);
     }
   }
-
-  // ─── MISSILE DIRECTION LOGIC ───────────────────────────────────────────────
-
-  const [missileDir, setMissileDir] = useState(null);
-  const [amDir, setAmDir] = useState(null); // for antimissile with defend perk
-
-  // ─── RENDER HELPERS ────────────────────────────────────────────────────────
-
-  const hpColor = (hp, max) => {
-    const pct = hp / max;
-    if (pct > 0.6) return "#4ade80";
-    if (pct > 0.3) return "#facc15";
-    return "#f87171";
-  };
-
-  const weaponsByType = (weapons, type) =>
-    Object.entries(weapons).filter(([id]) => getWeaponInfo(id)?.type === type);
-
-  // ─── PHASES ────────────────────────────────────────────────────────────────
-
-  if (phase === "intro") return <Intro onStart={startGame} />;
-
-  if (phase === "perk-select") return (
-    <PerkSelect
-      playerIdx={currentPlayer}
-      playerName={players[currentPlayer].name}
-      options={perkOptions}
-      onSelect={(p) => selectPerk(currentPlayer, p)}
-    />
-  );
-
-  if (phase === "weapon-select") return (
-    <WeaponSelect
-      playerIdx={currentPlayer}
-      player={players[currentPlayer]}
-      round={weaponRound}
-      choices={weaponChoices}
-      onSelect={(wid) => selectWeapon(currentPlayer, wid)}
-    />
-  );
-
-  if (phase === "steal") return (
-    <StealPhase
-      player0={players[0]}
-      player1={players[1]}
-      onSteal={performSteal}
-      onSkip={() => { setPhase("battle"); setBattleTurn(0); }}
-    />
-  );
-
-  if (phase === "gameover") return (
-    <GameOver winner={players[winner]} onRestart={() => {
-      setPlayers([
-        { name: "Player 1", perk: null, perkChoices: [], weapons: {}, grid: initGrid() },
-        { name: "Player 2", perk: null, perkChoices: [], weapons: {}, grid: initGrid() },
-      ]);
-      setLog([]); setWinner(null); setWeaponRound(0); setSelectedWeapon(null); setPendingAction(null);
-      setPhase("intro");
-    }} />
-  );
-
-  // BATTLE PHASE
-  const attacker = players[battleTurn];
-  const isAttackWeapon = selectedWeapon && getWeaponInfo(selectedWeapon)?.type === "a";
-  const isDefWeapon = selectedWeapon && getWeaponInfo(selectedWeapon)?.type === "d";
-  const isHealWeapon = selectedWeapon && getWeaponInfo(selectedWeapon)?.type === "h";
-  const needsMissileDir = selectedWeapon === "missile" && !missileDir;
-  const needsAmDir = selectedWeapon === "antimissile" && attacker.perk === "defend" && !amDir;
 
   function handleTileClick(gridOwner, row, col) {
     if (!selectedWeapon) return;
     const info = getWeaponInfo(selectedWeapon);
     if (!info) return;
-
-    // Check valid target
     const targetGrid = players[gridOwner].grid;
     const tile = targetGrid[row][col];
 
     if (info.type === "a") {
-      if (gridOwner === battleTurn) return; // must click enemy
+      if (gridOwner === battleTurn) return;
       if (tile.destroyed && selectedWeapon !== "rocket") return;
     } else {
-      if (gridOwner !== battleTurn) return; // must click own
+      if (gridOwner !== battleTurn) return;
       if (selectedWeapon === "expand" && !tile.destroyed) return;
       if (selectedWeapon !== "expand" && tile.destroyed) return;
     }
 
-    if (selectedWeapon === "missile" && !missileDir) { return; }
-    if (selectedWeapon === "antimissile" && attacker.perk === "defend" && !amDir) { return; }
+    if (selectedWeapon === "missile" && !missileDir) return;
+    if (selectedWeapon === "antimissile" && players[battleTurn].perk === "defend" && !amDir) return;
 
     const extra = {};
     if (selectedWeapon === "missile") extra.direction = missileDir;
@@ -538,46 +490,86 @@ export default function App() {
     setAmDir(null);
   }
 
+  // ─── PHASES ────────────────────────────────────────────────────────────────
+
+  if (phase === "intro") return <Intro onStart={startGame} />;
+  if (phase === "perk-select") return <PerkSelect playerIdx={currentPlayer} playerName={players[currentPlayer].name} options={perkOptions} onSelect={(p) => selectPerk(currentPlayer, p)} />;
+  if (phase === "weapon-select") return <WeaponSelect playerIdx={currentPlayer} player={players[currentPlayer]} round={weaponRound} choices={weaponChoices} onSelect={(wid) => selectWeapon(currentPlayer, wid)} />;
+  if (phase === "steal") return <StealPhase player0={players[0]} player1={players[1]} onSteal={performSteal} onSkip={() => { setPhase("battle"); setBattleTurn(0); setTimerActive(true); }} />;
+  if (phase === "gameover") return (
+    <GameOver
+      winner={winner === -1 ? null : players[winner]}
+      winReason={winReason}
+      timeoutScores={timeoutScores}
+      players={players}
+      onRestart={() => {
+        setPlayers([
+          { name: "Player 1", perk: null, perkChoices: [], weapons: {}, grid: initGrid() },
+          { name: "Player 2", perk: null, perkChoices: [], weapons: {}, grid: initGrid() },
+        ]);
+        setLog([]); setWinner(null); setWinReason(""); setTimeoutScores(null);
+        setWeaponRound(0); setSelectedWeapon(null); setTimerActive(false);
+        setPhase("intro");
+      }}
+    />
+  );
+
+  // BATTLE PHASE
+  const attacker = players[battleTurn];
+  const isAttackWeapon = selectedWeapon && getWeaponInfo(selectedWeapon)?.type === "a";
+
+  const hpColor = (hp, max) => {
+    const pct = hp / max;
+    if (pct > 0.6) return "#4ade80";
+    if (pct > 0.3) return "#facc15";
+    return "#f87171";
+  };
+
   return (
-    <div style={{ minHeight: "100vh", background: "#0f0f1a", color: "#e2e8f0", fontFamily: "'Cinzel', serif", padding: "0" }}>
+    <div style={{ minHeight: "100vh", background: "#0f0f1a", color: "#e2e8f0", fontFamily: "'Cinzel', serif", padding: 0 }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Rajdhani:wght@400;600&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: #1a1a2e; }
         ::-webkit-scrollbar-thumb { background: #7c3aed; border-radius: 3px; }
-        .tile-btn { transition: all 0.15s; cursor: pointer; border: none; }
-        .tile-btn:hover { transform: scale(1.05); filter: brightness(1.2); }
         .weapon-btn { transition: all 0.2s; cursor: pointer; }
         .weapon-btn:hover { transform: translateY(-2px); }
         .weapon-btn.selected { box-shadow: 0 0 0 2px #a78bfa, 0 0 20px #7c3aed88; }
-        .pulse { animation: pulse 2s infinite; }
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
-        .glow { text-shadow: 0 0 20px currentColor; }
+        @keyframes timerPulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.7;transform:scale(1.05)} }
+        @keyframes timerShake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-3px)} 75%{transform:translateX(3px)} }
+        .timer-urgent { animation: timerPulse 0.8s infinite; }
       `}</style>
 
       {/* Header */}
-      <div style={{ background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)", borderBottom: "1px solid #7c3aed44", padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h1 style={{ fontSize: "1.4rem", color: "#a78bfa", letterSpacing: "0.15em" }}>⚔️ TILE CLASH</h1>
-        <div style={{ fontFamily: "'Rajdhani', sans-serif", fontSize: "1rem", color: "#94a3b8" }}>
+      <div style={{ background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)", borderBottom: "1px solid #7c3aed44", padding: "10px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+        <h1 style={{ fontSize: "1.3rem", color: "#a78bfa", letterSpacing: "0.15em", whiteSpace: "nowrap" }}>⚔️ TILE CLASH</h1>
+
+        {/* Timer — center */}
+        <div className={timerUrgent ? "timer-urgent" : ""} style={{ display: "flex", flexDirection: "column", alignItems: "center", background: timerUrgent ? "#7f1d1d44" : "#1e1b4b", border: `2px solid ${timerColor}`, borderRadius: 10, padding: "4px 18px", minWidth: 90 }}>
+          <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: "0.6rem", color: "#94a3b8", letterSpacing: "0.12em" }}>TIME LEFT</div>
+          <div style={{ fontFamily: "'Cinzel',serif", fontSize: "1.4rem", fontWeight: 900, color: timerColor, letterSpacing: "0.05em", lineHeight: 1 }}>{formatTime(timeLeft)}</div>
+          {/* progress bar */}
+          <div style={{ width: 70, height: 3, background: "#1e293b", borderRadius: 2, marginTop: 3, overflow: "hidden" }}>
+            <div style={{ width: `${(timeLeft / GAME_DURATION) * 100}%`, height: "100%", background: timerColor, transition: "width 1s linear, background 1s" }} />
+          </div>
+        </div>
+
+        <div style={{ fontFamily: "'Rajdhani', sans-serif", fontSize: "0.95rem", color: "#94a3b8", whiteSpace: "nowrap" }}>
           Turn: <span style={{ color: "#f59e0b", fontWeight: 700 }}>{attacker.name}</span>
           {" · "}<span style={{ color: "#a78bfa" }}>{attacker.perk?.toUpperCase()}</span>
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 0, height: "calc(100vh - 56px)" }}>
-
-        {/* P0 Arsenal */}
+      <div style={{ display: "flex", gap: 0, height: "calc(100vh - 57px)" }}>
         <Arsenal player={players[0]} isActive={battleTurn === 0} selectedWeapon={battleTurn === 0 ? selectedWeapon : null} onSelect={battleTurn === 0 ? setSelectedWeapon : null} />
 
-        {/* Grids */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, padding: 16, overflowY: "auto" }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, padding: 14, overflowY: "auto" }}>
 
-          {/* Action controls */}
           {selectedWeapon && (
             <div style={{ background: "#1e1b4b", border: "1px solid #7c3aed", borderRadius: 8, padding: "10px 20px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", justifyContent: "center" }}>
               <span style={{ fontFamily: "'Rajdhani',sans-serif", color: "#c4b5fd" }}>
-                {getWeaponInfo(selectedWeapon)?.label} selected — click a {isAttackWeapon ? "🔴 enemy tile" : isDefWeapon ? "🟢 own tile" : "🟢 own tile"}
+                {getWeaponInfo(selectedWeapon)?.label} — click a {isAttackWeapon ? "🔴 enemy tile" : "🟢 own tile"}
               </span>
               {selectedWeapon === "missile" && (
                 <div style={{ display: "flex", gap: 8 }}>
@@ -601,7 +593,7 @@ export default function App() {
                 <div style={{ textAlign: "center", marginBottom: 8, fontFamily: "'Rajdhani',sans-serif", fontSize: "0.95rem", color: gi === battleTurn ? "#a78bfa" : "#64748b" }}>
                   {players[gi].name} {gi === battleTurn ? "⚡" : ""}
                   <div style={{ fontSize: "0.75rem", color: "#64748b" }}>
-                    Tiles alive: {players[gi].grid.flat().filter(t => !t.destroyed).length}
+                    Tiles: {players[gi].grid.flat().filter(t => !t.destroyed).length} · HP: {calcTotalHP(players[gi].grid)}
                   </div>
                 </div>
                 <TileGrid
@@ -619,14 +611,14 @@ export default function App() {
             ))}
           </div>
 
-          {/* Log */}
-          <div style={{ width: "100%", maxWidth: 600, background: "#0d0d1a", border: "1px solid #1e293b", borderRadius: 8, padding: 10, maxHeight: 100, overflowY: "auto" }}>
-            {log.length === 0 ? <div style={{ color: "#475569", fontFamily: "'Rajdhani',sans-serif", fontSize: "0.8rem", textAlign: "center" }}>Battle log…</div> :
-              log.map((l, i) => <div key={i} style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: "0.78rem", color: i === 0 ? "#c4b5fd" : "#475569", padding: "1px 0" }}>{l}</div>)}
+          <div style={{ width: "100%", maxWidth: 600, background: "#0d0d1a", border: "1px solid #1e293b", borderRadius: 8, padding: 10, maxHeight: 90, overflowY: "auto" }}>
+            {log.length === 0
+              ? <div style={{ color: "#475569", fontFamily: "'Rajdhani',sans-serif", fontSize: "0.8rem", textAlign: "center" }}>Battle log…</div>
+              : log.map((l, i) => <div key={i} style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: "0.78rem", color: i === 0 ? "#c4b5fd" : "#475569", padding: "1px 0" }}>{l}</div>)
+            }
           </div>
         </div>
 
-        {/* P1 Arsenal */}
         <Arsenal player={players[1]} isActive={battleTurn === 1} selectedWeapon={battleTurn === 1 ? selectedWeapon : null} onSelect={battleTurn === 1 ? setSelectedWeapon : null} />
       </div>
     </div>
@@ -638,13 +630,13 @@ export default function App() {
 function Intro({ onStart }) {
   return (
     <div style={{ minHeight: "100vh", background: "radial-gradient(ellipse at center, #1a1035 0%, #0a0a1a 100%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "'Cinzel', serif", color: "#e2e8f0" }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Rajdhani:wght@400;600&display=swap');* { box-sizing: border-box; }`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Rajdhani:wght@400;600&display=swap');*{box-sizing:border-box;}`}</style>
       <div style={{ textAlign: "center", padding: 40 }}>
         <div style={{ fontSize: "4rem", marginBottom: 16 }}>⚔️</div>
         <h1 style={{ fontSize: "3.5rem", fontWeight: 900, color: "#a78bfa", textShadow: "0 0 40px #7c3aed", letterSpacing: "0.2em", marginBottom: 8 }}>TILE CLASH</h1>
-        <p style={{ fontFamily: "'Rajdhani', sans-serif", color: "#64748b", fontSize: "1rem", marginBottom: 40, letterSpacing: "0.1em" }}>2-PLAYER TACTICAL WARFARE</p>
+        <p style={{ fontFamily: "'Rajdhani', sans-serif", color: "#64748b", fontSize: "1rem", marginBottom: 40, letterSpacing: "0.1em" }}>2-PLAYER TACTICAL WARFARE · 5 MINUTE ROUNDS</p>
         <div style={{ display: "flex", gap: 16, justifyContent: "center", marginBottom: 48, flexWrap: "wrap" }}>
-          {[["🔥", "Attack","Boost your offensive weapons"],["🛡️","Defend","Strengthen your defenses"],["💚","Heal","Amplify your recovery"],["💎","Steal","Take an enemy weapon (Ultra Rare)"]].map(([ic, name, desc]) => (
+          {[["🔥","Attack","Boost your offensive weapons"],["🛡️","Defend","Strengthen your defenses"],["💚","Heal","Amplify your recovery"],["💎","Steal","Take an enemy weapon (Ultra Rare)"]].map(([ic, name, desc]) => (
             <div key={name} style={{ background: "#1a1a2e", border: "1px solid #312e81", borderRadius: 12, padding: "16px 20px", width: 140, textAlign: "center" }}>
               <div style={{ fontSize: "1.8rem" }}>{ic}</div>
               <div style={{ color: "#a78bfa", fontWeight: 700, fontSize: "0.9rem", marginTop: 4 }}>{name}</div>
@@ -652,6 +644,7 @@ function Intro({ onStart }) {
             </div>
           ))}
         </div>
+        <div style={{ fontFamily: "'Rajdhani',sans-serif", color: "#475569", fontSize: "0.8rem", marginBottom: 24 }}>⏱️ If time runs out, the player with the most total tile HP wins</div>
         <button onClick={onStart} style={{ background: "linear-gradient(135deg, #7c3aed, #4c1d95)", color: "#fff", border: "none", borderRadius: 12, padding: "16px 48px", fontSize: "1.1rem", fontFamily: "'Cinzel',serif", fontWeight: 700, cursor: "pointer", letterSpacing: "0.1em", boxShadow: "0 0 30px #7c3aed88" }}>
           BEGIN BATTLE
         </button>
@@ -697,19 +690,14 @@ function WeaponSelect({ playerIdx, player, round, choices, onSelect }) {
         <h2 style={{ color: "#a78bfa", fontSize: "1.8rem", marginBottom: 4 }}>{player.name}</h2>
         <p style={{ fontFamily: "'Rajdhani',sans-serif", color: "#64748b", marginBottom: 4 }}>Perk: <span style={{ color: "#f59e0b" }}>{player.perk?.toUpperCase()}</span></p>
         <p style={{ fontFamily: "'Rajdhani',sans-serif", color: "#64748b", marginBottom: 32 }}>Round {round + 1} of 5</p>
-
-        {/* Current loadout */}
         {Object.keys(player.weapons).length > 0 && (
           <div style={{ display: "flex", gap: 8, justifyContent: "center", marginBottom: 24, flexWrap: "wrap" }}>
             {Object.entries(player.weapons).map(([wid, lvl]) => {
               const info = getWeaponInfo(wid);
-              return <div key={wid} style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "6px 12px", fontFamily: "'Rajdhani',sans-serif", fontSize: "0.8rem", color: "#94a3b8" }}>
-                {info?.label} {lvl > 1 ? "⭐⭐" : "⭐"}
-              </div>;
+              return <div key={wid} style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "6px 12px", fontFamily: "'Rajdhani',sans-serif", fontSize: "0.8rem", color: "#94a3b8" }}>{info?.label} {"⭐".repeat(lvl)}</div>;
             })}
           </div>
         )}
-
         <div style={{ display: "flex", gap: 20, justifyContent: "center", flexWrap: "wrap" }}>
           {choices.map(w => {
             const typeColors = { a: "#ef4444", d: "#3b82f6", h: "#22c55e" };
@@ -736,7 +724,6 @@ function WeaponSelect({ playerIdx, player, round, choices, onSelect }) {
 }
 
 function StealPhase({ player0, player1, onSteal, onSkip }) {
-  const [hovered, setHovered] = useState(null);
   return (
     <div style={{ minHeight: "100vh", background: "radial-gradient(ellipse at center, #2d1a00 0%, #0a0a1a 100%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "'Cinzel', serif", color: "#e2e8f0" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Rajdhani:wght@400;600&display=swap');*{box-sizing:border-box;}`}</style>
@@ -747,9 +734,8 @@ function StealPhase({ player0, player1, onSteal, onSkip }) {
         <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap", marginBottom: 32 }}>
           {Object.entries(player1.weapons).map(([wid, lvl]) => {
             const info = getWeaponInfo(wid);
-            const p0has = player0.weapons[wid];
             return (
-              <button key={wid} onClick={() => onSteal(wid)} style={{ background: "#1a1a2e", border: `2px solid #f59e0b44`, borderRadius: 12, padding: "16px 20px", textAlign: "center", cursor: "pointer", transition: "all 0.2s", color: "#e2e8f0", minWidth: 130 }}
+              <button key={wid} onClick={() => onSteal(wid)} style={{ background: "#1a1a2e", border: "2px solid #f59e0b44", borderRadius: 12, padding: "16px 20px", textAlign: "center", cursor: "pointer", transition: "all 0.2s", color: "#e2e8f0", minWidth: 130 }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor = "#f59e0b"; e.currentTarget.style.transform = "translateY(-3px)"; }}
                 onMouseLeave={e => { e.currentTarget.style.borderColor = "#f59e0b44"; e.currentTarget.style.transform = ""; }}>
                 <div style={{ fontSize: "1.5rem" }}>{info?.label.split(" ")[0]}</div>
@@ -768,14 +754,12 @@ function StealPhase({ player0, player1, onSteal, onSkip }) {
 function Arsenal({ player, isActive, selectedWeapon, onSelect }) {
   const typeColors = { a: "#ef4444", d: "#3b82f6", h: "#22c55e" };
   const typeLabels = { a: "⚔️ Attack", d: "🛡️ Defense", h: "💚 Heal" };
-
   return (
     <div style={{ width: 170, background: isActive ? "#12122a" : "#0d0d1a", borderRight: isActive ? "1px solid #7c3aed44" : "1px solid #1e293b", borderLeft: isActive ? "1px solid #7c3aed44" : "1px solid #1e293b", padding: "12px 10px", display: "flex", flexDirection: "column", gap: 8, overflowY: "auto", transition: "background 0.3s" }}>
       <div style={{ textAlign: "center", paddingBottom: 8, borderBottom: "1px solid #1e293b" }}>
         <div style={{ fontSize: "0.75rem", color: isActive ? "#a78bfa" : "#475569", fontFamily: "'Rajdhani',sans-serif", letterSpacing: "0.1em" }}>{player.name}</div>
         <div style={{ fontSize: "0.7rem", color: "#64748b", fontFamily: "'Rajdhani',sans-serif" }}>{player.perk?.toUpperCase()}</div>
       </div>
-
       {["a", "d", "h"].map(type => {
         const weapons = Object.entries(player.weapons).filter(([id]) => getWeaponInfo(id)?.type === type);
         if (!weapons.length) return null;
@@ -798,10 +782,7 @@ function Arsenal({ player, isActive, selectedWeapon, onSelect }) {
           </div>
         );
       })}
-
-      {Object.keys(player.weapons).length === 0 && (
-        <div style={{ color: "#334155", fontFamily: "'Rajdhani',sans-serif", fontSize: "0.7rem", textAlign: "center", marginTop: 20 }}>No weapons</div>
-      )}
+      {Object.keys(player.weapons).length === 0 && <div style={{ color: "#334155", fontFamily: "'Rajdhani',sans-serif", fontSize: "0.7rem", textAlign: "center", marginTop: 20 }}>No weapons</div>}
     </div>
   );
 }
@@ -816,32 +797,15 @@ function TileGrid({ grid, owner, battleTurn, selectedWeapon, missileDir, amDir, 
     <div style={{ display: "grid", gridTemplateColumns: `repeat(${GRID_SIZE}, 52px)`, gap: 4, padding: 8, background: "#0d0d1a", borderRadius: 10, border: `1px solid ${isEnemyGrid && canTarget ? "#ef444433" : isOwnGrid && canTarget ? "#22c55e33" : "#1e293b"}` }}>
       {grid.map((row, r) => row.map((tile, c) => {
         const pct = tile.destroyed ? 0 : tile.hp / tile.maxHp;
-        const bg = tile.destroyed
-          ? "#0f0f0f"
-          : `linear-gradient(135deg, ${hpColor(tile.hp, tile.maxHp)}22 0%, #1a1a2e 100%)`;
-
-        const clickable = canTarget && (
-          (info?.id === "expand" ? tile.destroyed : !tile.destroyed) || (info?.id === "rocket")
-        );
-
-        // Missile needs direction before clicking
+        const bg = tile.destroyed ? "#0f0f0f" : `linear-gradient(135deg, ${hpColor(tile.hp, tile.maxHp)}22 0%, #1a1a2e 100%)`;
         const missilePending = selectedWeapon === "missile" && !missileDir;
         const amPending = selectedWeapon === "antimissile" && attackerPerk === "defend" && !amDir;
+        const clickable = canTarget && ((info?.id === "expand" ? tile.destroyed : !tile.destroyed) || info?.id === "rocket");
         const ready = clickable && !missilePending && !amPending;
 
         return (
-          <div key={`${r}-${c}`}
-            onClick={() => ready && onTileClick(r, c)}
-            style={{
-              width: 52, height: 52, borderRadius: 6, background: bg,
-              border: `1px solid ${tile.destroyed ? "#1a1a1a" : tile.shield > 0 ? "#fbbf24" : tile.antimissile ? "#06b6d4" : tile.steel ? "#94a3b8" : "#1e293b"}`,
-              cursor: ready ? "pointer" : "default",
-              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-              position: "relative", transition: "all 0.15s",
-              opacity: tile.destroyed ? 0.25 : 1,
-              filter: ready ? "brightness(1.1)" : "brightness(1)",
-              boxShadow: ready ? `0 0 8px ${info?.type === "a" ? "#ef444488" : info?.type === "d" ? "#3b82f688" : "#22c55e88"}` : "none",
-            }}>
+          <div key={`${r}-${c}`} onClick={() => ready && onTileClick(r, c)}
+            style={{ width: 52, height: 52, borderRadius: 6, background: bg, border: `1px solid ${tile.destroyed ? "#1a1a1a" : tile.shield > 0 ? "#fbbf24" : tile.antimissile ? "#06b6d4" : tile.steel ? "#94a3b8" : "#1e293b"}`, cursor: ready ? "pointer" : "default", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", position: "relative", transition: "all 0.15s", opacity: tile.destroyed ? 0.25 : 1, filter: ready ? "brightness(1.1)" : "brightness(1)", boxShadow: ready ? `0 0 8px ${info?.type === "a" ? "#ef444488" : info?.type === "d" ? "#3b82f688" : "#22c55e88"}` : "none" }}>
             {!tile.destroyed && (
               <>
                 <div style={{ width: "80%", height: 3, background: "#1e293b", borderRadius: 2, overflow: "hidden", marginBottom: 2 }}>
@@ -863,14 +827,38 @@ function TileGrid({ grid, owner, battleTurn, selectedWeapon, missileDir, amDir, 
   );
 }
 
-function GameOver({ winner, onRestart }) {
+function GameOver({ winner, winReason, timeoutScores, players, onRestart }) {
+  const isDraw = winner === null;
   return (
-    <div style={{ minHeight: "100vh", background: "radial-gradient(ellipse at center, #1a3520 0%, #0a0a1a 100%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "'Cinzel', serif", color: "#e2e8f0" }}>
+    <div style={{ minHeight: "100vh", background: `radial-gradient(ellipse at center, ${isDraw ? "#1a1a2e" : winReason === "timeout" ? "#1a2e1a" : "#1a3520"} 0%, #0a0a1a 100%)`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "'Cinzel', serif", color: "#e2e8f0" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Rajdhani:wght@400;600&display=swap');*{box-sizing:border-box;}`}</style>
       <div style={{ textAlign: "center", padding: 40 }}>
-        <div style={{ fontSize: "4rem", marginBottom: 16 }}>🏆</div>
-        <h2 style={{ fontSize: "3rem", color: "#4ade80", textShadow: "0 0 40px #22c55e", letterSpacing: "0.15em", marginBottom: 8 }}>VICTORY</h2>
-        <p style={{ color: "#a78bfa", fontSize: "1.5rem", marginBottom: 40 }}>{winner.name} wins!</p>
+        <div style={{ fontSize: "4rem", marginBottom: 16 }}>{isDraw ? "🤝" : winReason === "timeout" ? "⏱️" : "🏆"}</div>
+        <h2 style={{ fontSize: "3rem", color: isDraw ? "#94a3b8" : "#4ade80", textShadow: `0 0 40px ${isDraw ? "#94a3b8" : "#22c55e"}`, letterSpacing: "0.15em", marginBottom: 8 }}>
+          {isDraw ? "DRAW" : "VICTORY"}
+        </h2>
+        {!isDraw && <p style={{ color: "#a78bfa", fontSize: "1.5rem", marginBottom: 16 }}>{winner.name} wins!</p>}
+        {winReason === "timeout" && (
+          <div style={{ background: "#1e1b4b", border: "1px solid #7c3aed44", borderRadius: 12, padding: "16px 32px", marginBottom: 28, display: "inline-block" }}>
+            <div style={{ fontFamily: "'Rajdhani',sans-serif", color: "#64748b", fontSize: "0.75rem", letterSpacing: "0.12em", marginBottom: 8 }}>TIME EXPIRED · HP TALLY</div>
+            <div style={{ display: "flex", gap: 32, justifyContent: "center" }}>
+              {[0, 1].map(i => (
+                <div key={i} style={{ textAlign: "center" }}>
+                  <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: "0.8rem", color: winner && players[i].name === winner.name ? "#4ade80" : "#94a3b8", marginBottom: 4 }}>
+                    {players[i].name} {winner && players[i].name === winner.name ? "👑" : ""}
+                  </div>
+                  <div style={{ fontSize: "1.8rem", fontWeight: 900, color: winner && players[i].name === winner.name ? "#4ade80" : "#f87171" }}>
+                    {i === 0 ? timeoutScores?.hp0 : timeoutScores?.hp1}
+                  </div>
+                  <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: "0.65rem", color: "#475569" }}>TOTAL HP</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {winReason === "elimination" && (
+          <p style={{ fontFamily: "'Rajdhani',sans-serif", color: "#64748b", fontSize: "0.85rem", marginBottom: 28 }}>All enemy tiles destroyed</p>
+        )}
         <button onClick={onRestart} style={{ background: "linear-gradient(135deg, #7c3aed, #4c1d95)", color: "#fff", border: "none", borderRadius: 12, padding: "14px 40px", fontSize: "1rem", fontFamily: "'Cinzel',serif", fontWeight: 700, cursor: "pointer", letterSpacing: "0.1em", boxShadow: "0 0 25px #7c3aed88" }}>
           Play Again
         </button>
