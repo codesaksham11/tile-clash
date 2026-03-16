@@ -17,7 +17,6 @@ const WEAPONS = [
   { id: "steel",       label: "⚙️ Steel",        type: "d" },
   { id: "expand",      label: "🌱 Expand",       type: "d" },
   { id: "regenerate",  label: "💚 Regenerate",   type: "h" },
-  { id: "aroma",       label: "🌸 Aroma",        type: "h" },
   { id: "quickheal",   label: "⚡ Quick Heal",   type: "h" },
 ];
 
@@ -117,7 +116,7 @@ function applyWeapon(grid, weaponId, level, perk, target, extra) {
     let main, side;
     if (level === 2 && perk === "attack") { main = 80; side = 50; }
     else if (perk === "attack") { main = 60; side = 40; }
-    else if (level === 2) { main = 50; side = 30; }
+    else if (level === 2) { main = 50; side = 35; }
     else { main = 40; side = 20; }
     hitTile(row, col, main, true);
     getNeighbors(grid, row, col).forEach(n => hitTile(n.row, n.col, side));
@@ -229,10 +228,10 @@ function applyHeal(grid, weaponId, level, perk, target) {
 
   if (weaponId === "regenerate") {
     let main, side;
-    if (level === 2 && perk === "heal") { main = 100; side = 50; }
-    else if (perk === "heal") { main = 95; side = 45; }
-    else if (level === 2) { main = 90; side = 40; }
-    else { main = 85; side = 35; }
+    if (level === 2 && perk === "heal") { main = 100; side = 25; }
+    else if (perk === "heal") { main = 95; side = 20; }
+    else if (level === 2) { main = 90; side = 15; }
+    else { main = 85; side = 10; }
     g[row][col] = cap(g[row][col], main);
     getNeighbors(grid, row, col).forEach(n => { if (!n.destroyed) g[n.row][n.col] = cap(g[n.row][n.col], side); });
   }
