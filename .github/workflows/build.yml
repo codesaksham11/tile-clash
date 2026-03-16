@@ -7,8 +7,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: Checkout Source
@@ -25,15 +23,11 @@ jobs:
       - name: Build Web App
         run: npm run build
 
-      # NEW: This step helps us see if the files exist
-      - name: Check Build Output
-        run: ls -R dist
-
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '17'
+          java-version: '21' # This was the magic fix!
 
       - name: Build APK
         run: |
