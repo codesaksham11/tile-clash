@@ -290,6 +290,52 @@ export default function App() {
   const [amDir, setAmDir] = useState(null);
   const [timerActive, setTimerActive] = useState(false);
   const [timeoutScores, setTimeoutScores] = useState(null);
+// --- MOBILE UI STATE & ZOOM LOGIC ---
+  const [zoom, setZoom] = useState(1);
+  const [leftOpen, setLeftOpen] = useState(typeof window !== "undefined" ? window.innerWidth > 768 : true);
+  const [rightOpen, setRightOpen] = useState(typeof window !== "undefined" ? window.innerWidth > 768 : true);
+  const touchStartRef = useRef(null);
+  const swipeStartRef = useRef(null);
+
+  // Auto-manage sidebars based on screen size
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth > 768) {
+        setLeftOpen(true);
+        setRightOpen(true);
+      } else {
+        setLeftOpen(false);
+        setRightOpen(false);
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  // Pinch-to-zoom handlers
+  const handleTouchStart = (e) => {
+    if (e.touches.length === 2) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      touchStartRef.current = dist;
+    }
+  };
+  const handleTouchMove = (e) => {
+    if (e.touches.length === 2 && touchStartRef.current) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const delta = dist / touchStartRef.current;
+      setZoom((prev) => Math.min(Math.max(0.4, prev * delta), 2)); // Limits zoom from 40% to 200%
+      touchStartRef.current = dist;
+    }
+  };
+  const handleTouchEnd = (e) => {
+    if (e.touches.length < 2) touchStartRef.current = null;
+  };
 
   const handleTimerExpire = useCallback(() => {
     setPlayers(currentPlayers => {
@@ -539,6 +585,33 @@ export default function App() {
         @keyframes timerPulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.7;transform:scale(1.05)} }
         @keyframes timerShake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-3px)} 75%{transform:translateX(3px)} }
         .timer-urgent { animation: timerPulse 0.8s infinite; }
+/* --- NEW MOBILE UI STYLES --- */
+        .battle-container { display: flex; gap: 0; height: calc(100vh - 57px); position: relative; overflow: hidden; }
+        .middle-area { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 14px; padding: 14px; overflow: auto; touch-action: pan-x pan-y; }
+        .zoom-wrapper { display: flex; flex-direction: column; align-items: center; gap: 14px; transform-origin: top center; transition: transform 0.1s ease-out; width: 100%; }
+
+        @media (max-width: 768px) {
+          .arsenal-wrapper { position: absolute; top: 0; bottom: 0; z-index: 50; transition: transform 0.3s ease-in-out; background: #0d0d1a; height: 100%; box-shadow: 0 0 20px rgba(0,0,0,0.8); }
+          .arsenal-left { left: 0; transform: translateX(-100%); }
+          .arsenal-left.open { transform: translateX(0); }
+          .arsenal-right { right: 0; transform: translateX(100%); }
+          .arsenal-right.open { transform: translateX(0); }
+          .panel-toggle { display: flex !important; }
+          .zoom-controls { display: flex !important; }
+        }
+
+        .panel-toggle {
+          display: none; position: absolute; top: 50%; transform: translateY(-50%);
+          background: #1e1b4b; border: 1px solid #7c3aed; color: #e2e8f0;
+          padding: 16px 8px; cursor: pointer; z-index: 60; border-radius: 8px; font-weight: bold;
+          box-shadow: 0 0 10px #7c3aed88; align-items: center; justify-content: center; font-family: 'Rajdhani', sans-serif;
+        }
+        .panel-toggle-left { left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+        .panel-toggle-right { right: 0; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+
+        .zoom-controls { display: none; position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); gap: 12px; z-index: 40; background: #1e1b4bdf; padding: 6px 12px; border-radius: 20px; border: 1px solid #7c3aed; align-items: center; }
+        .zoom-btn { background: #312e81; border: none; color: #e2e8f0; width: 36px; height: 36px; border-radius: 18px; font-size: 1.4rem; cursor: pointer; }
+        .zoom-btn:active { background: #4c1d95; }
       `}</style>
 
       {/* Header */}
@@ -561,65 +634,110 @@ export default function App() {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 0, height: "calc(100vh - 57px)" }}>
-        <Arsenal player={players[0]} isActive={battleTurn === 0} selectedWeapon={battleTurn === 0 ? selectedWeapon : null} onSelect={battleTurn === 0 ? setSelectedWeapon : null} />
+    {/* --- EDITED BATTLE CONTAINER --- */}
+      <div className="battle-container">
 
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, padding: 14, overflowY: "auto" }}>
+        {/* Left Arsenal (Player 1) - With swipe to close */}
+        <div className={`arsenal-wrapper arsenal-left ${leftOpen ? "open" : ""}`}
+             onTouchStart={(e) => swipeStartRef.current = e.touches[0].clientX}
+             onTouchEnd={(e) => { if (swipeStartRef.current && e.changedTouches[0].clientX < swipeStartRef.current - 40) setLeftOpen(false); }}>
+          <Arsenal player={players[0]} isActive={battleTurn === 0} selectedWeapon={battleTurn === 0 ? selectedWeapon : null} onSelect={battleTurn === 0 ? setSelectedWeapon : null} />
+          <button className="panel-toggle" style={{ left: '100%', top: '10%' }} onClick={() => setLeftOpen(false)}>◀</button>
+        </div>
+        {!leftOpen && (
+          <button className="panel-toggle panel-toggle-left" onClick={() => { setLeftOpen(true); setRightOpen(false); }}>
+            P1 ▶
+          </button>
+        )}
 
-          {selectedWeapon && (
-            <div style={{ background: "#1e1b4b", border: "1px solid #7c3aed", borderRadius: 8, padding: "10px 20px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", justifyContent: "center" }}>
-              <span style={{ fontFamily: "'Rajdhani',sans-serif", color: "#c4b5fd" }}>
-                {getWeaponInfo(selectedWeapon)?.label} — click a {isAttackWeapon ? "🔴 enemy tile" : "🟢 own tile"}
-              </span>
-              {selectedWeapon === "missile" && (
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={() => setMissileDir("row")} style={{ background: missileDir === "row" ? "#7c3aed" : "#312e81", color: "#e2e8f0", border: "none", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontFamily: "'Rajdhani',sans-serif" }}>→ Row</button>
-                  <button onClick={() => setMissileDir("col")} style={{ background: missileDir === "col" ? "#7c3aed" : "#312e81", color: "#e2e8f0", border: "none", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontFamily: "'Rajdhani',sans-serif" }}>↓ Col</button>
-                </div>
-              )}
-              {selectedWeapon === "antimissile" && attacker.perk === "defend" && (
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={() => setAmDir("row")} style={{ background: amDir === "row" ? "#7c3aed" : "#312e81", color: "#e2e8f0", border: "none", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontFamily: "'Rajdhani',sans-serif" }}>→ Row</button>
-                  <button onClick={() => setAmDir("col")} style={{ background: amDir === "col" ? "#7c3aed" : "#312e81", color: "#e2e8f0", border: "none", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontFamily: "'Rajdhani',sans-serif" }}>↓ Col</button>
-                </div>
-              )}
-              <button onClick={() => { setSelectedWeapon(null); setMissileDir(null); setAmDir(null); }} style={{ background: "#7f1d1d", color: "#fca5a5", border: "none", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontFamily: "'Rajdhani',sans-serif" }}>✕ Cancel</button>
-            </div>
-          )}
+        {/* Middle Area with Zoom */}
+        <div
+          className="middle-area"
+          onClick={(e) => { if (e.target === e.currentTarget && window.innerWidth <= 768) { setLeftOpen(false); setRightOpen(false); } }}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+        >
+          <div className="zoom-wrapper" style={{ transform: `scale(${zoom})` }}>
 
-          <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap", justifyContent: "center" }}>
-            {[0, 1].map(gi => (
-              <div key={gi}>
-                <div style={{ textAlign: "center", marginBottom: 8, fontFamily: "'Rajdhani',sans-serif", fontSize: "0.95rem", color: gi === battleTurn ? "#a78bfa" : "#64748b" }}>
-                  {players[gi].name} {gi === battleTurn ? "⚡" : ""}
-                  <div style={{ fontSize: "0.75rem", color: "#64748b" }}>
-                    Tiles: {players[gi].grid.flat().filter(t => !t.destroyed).length} · HP: {calcTotalHP(players[gi].grid)}
+            {/* Selected Weapon Overlay */}
+            {selectedWeapon && (
+              <div style={{ background: "#1e1b4b", border: "1px solid #7c3aed", borderRadius: 8, padding: "10px 20px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", justifyContent: "center", width: "100%", maxWidth: 600 }}>
+                <span style={{ fontFamily: "'Rajdhani',sans-serif", color: "#c4b5fd" }}>
+                  {getWeaponInfo(selectedWeapon)?.label} — click a {isAttackWeapon ? "🔴 enemy tile" : "🟢 own tile"}
+                </span>
+                {selectedWeapon === "missile" && (
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={(e) => { e.stopPropagation(); setMissileDir("row"); }} style={{ background: missileDir === "row" ? "#7c3aed" : "#312e81", color: "#e2e8f0", border: "none", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontFamily: "'Rajdhani',sans-serif" }}>→ Row</button>
+                    <button onClick={(e) => { e.stopPropagation(); setMissileDir("col"); }} style={{ background: missileDir === "col" ? "#7c3aed" : "#312e81", color: "#e2e8f0", border: "none", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontFamily: "'Rajdhani',sans-serif" }}>↓ Col</button>
                   </div>
-                </div>
-                <TileGrid
-                  grid={players[gi].grid}
-                  owner={gi}
-                  battleTurn={battleTurn}
-                  selectedWeapon={selectedWeapon}
-                  missileDir={missileDir}
-                  amDir={amDir}
-                  attackerPerk={attacker.perk}
-                  onTileClick={(r, c) => handleTileClick(gi, r, c)}
-                  hpColor={hpColor}
-                />
+                )}
+                {selectedWeapon === "antimissile" && attacker.perk === "defend" && (
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={(e) => { e.stopPropagation(); setAmDir("row"); }} style={{ background: amDir === "row" ? "#7c3aed" : "#312e81", color: "#e2e8f0", border: "none", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontFamily: "'Rajdhani',sans-serif" }}>→ Row</button>
+                    <button onClick={(e) => { e.stopPropagation(); setAmDir("col"); }} style={{ background: amDir === "col" ? "#7c3aed" : "#312e81", color: "#e2e8f0", border: "none", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontFamily: "'Rajdhani',sans-serif" }}>↓ Col</button>
+                  </div>
+                )}
+                <button onClick={(e) => { e.stopPropagation(); setSelectedWeapon(null); setMissileDir(null); setAmDir(null); }} style={{ background: "#7f1d1d", color: "#fca5a5", border: "none", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontFamily: "'Rajdhani',sans-serif" }}>✕ Cancel</button>
               </div>
-            ))}
-          </div>
+            )}
 
-          <div style={{ width: "100%", maxWidth: 600, background: "#0d0d1a", border: "1px solid #1e293b", borderRadius: 8, padding: 10, maxHeight: 90, overflowY: "auto" }}>
-            {log.length === 0
-              ? <div style={{ color: "#475569", fontFamily: "'Rajdhani',sans-serif", fontSize: "0.8rem", textAlign: "center" }}>Battle log…</div>
-              : log.map((l, i) => <div key={i} style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: "0.78rem", color: i === 0 ? "#c4b5fd" : "#475569", padding: "1px 0" }}>{l}</div>)
-            }
+            {/* The Grids */}
+            <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap", justifyContent: "center" }}>
+              {[0, 1].map(gi => (
+                <div key={gi}>
+                  <div style={{ textAlign: "center", marginBottom: 8, fontFamily: "'Rajdhani',sans-serif", fontSize: "0.95rem", color: gi === battleTurn ? "#a78bfa" : "#64748b" }}>
+                    {players[gi].name} {gi === battleTurn ? "⚡" : ""}
+                    <div style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                      Tiles: {players[gi].grid.flat().filter(t => !t.destroyed).length} · HP: {calcTotalHP(players[gi].grid)}
+                    </div>
+                  </div>
+                  <TileGrid
+                    grid={players[gi].grid}
+                    owner={gi}
+                    battleTurn={battleTurn}
+                    selectedWeapon={selectedWeapon}
+                    missileDir={missileDir}
+                    amDir={amDir}
+                    attackerPerk={attacker.perk}
+                    onTileClick={(r, c) => handleTileClick(gi, r, c)}
+                    hpColor={hpColor}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {/* Battle Log */}
+            <div style={{ width: "100%", maxWidth: 600, background: "#0d0d1a", border: "1px solid #1e293b", borderRadius: 8, padding: 10, maxHeight: 90, overflowY: "auto" }}>
+              {log.length === 0
+                ? <div style={{ color: "#475569", fontFamily: "'Rajdhani',sans-serif", fontSize: "0.8rem", textAlign: "center" }}>Battle log…</div>
+                : log.map((l, i) => <div key={i} style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: "0.78rem", color: i === 0 ? "#c4b5fd" : "#475569", padding: "1px 0" }}>{l}</div>)
+              }
+            </div>
+
           </div>
         </div>
 
-        <Arsenal player={players[1]} isActive={battleTurn === 1} selectedWeapon={battleTurn === 1 ? selectedWeapon : null} onSelect={battleTurn === 1 ? setSelectedWeapon : null} />
+        {/* Right Arsenal (Player 2) - With swipe to close */}
+        <div className={`arsenal-wrapper arsenal-right ${rightOpen ? "open" : ""}`}
+             onTouchStart={(e) => swipeStartRef.current = e.touches[0].clientX}
+             onTouchEnd={(e) => { if (swipeStartRef.current && e.changedTouches[0].clientX > swipeStartRef.current + 40) setRightOpen(false); }}>
+          <Arsenal player={players[1]} isActive={battleTurn === 1} selectedWeapon={battleTurn === 1 ? selectedWeapon : null} onSelect={battleTurn === 1 ? setSelectedWeapon : null} />
+          <button className="panel-toggle" style={{ right: '100%', top: '10%' }} onClick={() => setRightOpen(false)}>▶</button>
+        </div>
+        {!rightOpen && (
+          <button className="panel-toggle panel-toggle-right" onClick={() => { setRightOpen(true); setLeftOpen(false); }}>
+            ◀ P2
+          </button>
+        )}
+
+        {/* Zoom Controls Overlay (Mobile Only) */}
+        <div className="zoom-controls">
+          <button className="zoom-btn" onClick={() => setZoom(z => Math.max(0.4, z - 0.15))}>-</button>
+          <div style={{ color: "#a78bfa", fontFamily: "'Rajdhani',sans-serif", fontWeight: "bold", width: "45px", textAlign: "center" }}>{Math.round(zoom * 100)}%</div>
+          <button className="zoom-btn" onClick={() => setZoom(z => Math.min(2, z + 0.15))}>+</button>
+        </div>
+
       </div>
     </div>
   );
