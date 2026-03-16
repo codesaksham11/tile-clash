@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 
-const TILE_BASE_HP = 110;
-const GRID_SIZE = 5;
+const TILE_BASE_HP = 150;
+const GRID_SIZE = 8;
 const GAME_DURATION = 5 * 60; // 5 minutes in seconds
 
 const PERKS = ["attack", "defend", "heal", "steal"];
@@ -112,7 +112,7 @@ function applyWeapon(grid, weaponId, level, perk, target, extra) {
 
   if (weaponId === "fireball") {
     let main, side;
-    if (level === 2 && perk === "attack") { main = 80; side = 50; }
+    if (level === 2 && perk === "attack") { main = 70; side = 45; }
     else if (perk === "attack") { main = 60; side = 40; }
     else if (level === 2) { main = 50; side = 35; }
     else { main = 40; side = 20; }
