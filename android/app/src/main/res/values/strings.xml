@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">tile clash</string>
+    <string name="title_activity_main">tile clash</string>
+    <string name="package_name">clash.tile.saxam</string>
+    <string name="custom_url_scheme">clash.tile.saxam</string>
+</resources>
