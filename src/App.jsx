@@ -143,10 +143,10 @@ function applyWeapon(grid, weaponId, level, perk, target, extra) {
 
   else if (weaponId === "missile") {
     let dmg;
-    if (level === 2 && perk === "attack") dmg = 75;
-    else if (perk === "attack") dmg = 60;
-    else if (level === 2) dmg = 65;
-    else dmg = 40;
+    if (level === 2 && perk === "attack") dmg = 50;
+    else if (perk === "attack") dmg = 45;
+    else if (level === 2) dmg = 35;
+    else dmg = 25;
     const direction = extra?.direction || "row";
     for (let i = 0; i < GRID_SIZE; i++) {
       const r = direction === "row" ? row : i;
@@ -205,10 +205,10 @@ function applyDefense(grid, weaponId, level, perk, target, extra) {
 
   else if (weaponId === "expand") {
     let hp;
-    if (level === 2 && perk === "defend") hp = 100;
-    else if (perk === "defend") hp = 80;
-    else if (level === 2) hp = 70;
-    else hp = 50;
+    if (level === 2 && perk === "defend") hp = 135;
+    else if (perk === "defend") hp = 125;
+    else if (level === 2) hp = 120;
+    else hp = 110;
     if (g[row][col].destroyed) {
       g[row][col] = { ...g[row][col], hp, maxHp: hp, destroyed: false, shield: 0, steel: false, steelUsed: false, antimissile: false };
     }
