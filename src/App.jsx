@@ -229,20 +229,20 @@ function applyHeal(grid, weaponId, level, perk, target) {
 
   if (weaponId === "regenerate") {
     let main, side;
-    if (level === 2 && perk === "heal") { main = 90; side = 60; }
-    else if (perk === "heal") { main = 70; side = 40; }
-    else if (level === 2) { main = 65; side = 35; }
-    else { main = 55; side = 25; }
+    if (level === 2 && perk === "heal") { main = 100; side = 50; }
+    else if (perk === "heal") { main = 95; side = 45; }
+    else if (level === 2) { main = 90; side = 40; }
+    else { main = 85; side = 35; }
     g[row][col] = cap(g[row][col], main);
     getNeighbors(grid, row, col).forEach(n => { if (!n.destroyed) g[n.row][n.col] = cap(g[n.row][n.col], side); });
   }
 
   else if (weaponId === "aroma") {
     let amt;
-    if (level === 2 && perk === "heal") amt = 95;
-    else if (perk === "heal") amt = 80;
-    else if (level === 2) amt = 70;
-    else amt = 60;
+    if (level === 2 && perk === "heal") amt = 120;
+    else if (perk === "heal") amt = 110;
+    else if (level === 2) amt = 100;
+    else amt = 90;
     g[row][col] = cap(g[row][col], amt);
     getNeighbors(grid, row, col).forEach(n => { if (!n.destroyed) g[n.row][n.col] = cap(g[n.row][n.col], amt); });
   }
