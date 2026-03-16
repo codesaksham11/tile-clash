@@ -12,7 +12,6 @@ const WEAPONS = [
   { id: "fireball",    label: "🔥 Fireball",    type: "a" },
   { id: "cannon",      label: "💣 Cannon",       type: "a" },
   { id: "missile",     label: "🚀 Missile",      type: "a" },
-  { id: "rocket",      label: "☄️ Rocket",       type: "a" },
   { id: "shield",      label: "🛡️ Shield",       type: "d" },
   { id: "antimissile", label: "🔰 Anti-Missile", type: "d" },
   { id: "steel",       label: "⚙️ Steel",        type: "d" },
