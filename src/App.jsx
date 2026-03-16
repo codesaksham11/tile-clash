@@ -116,20 +116,20 @@ function applyWeapon(grid, weaponId, level, perk, target, extra) {
 
   if (weaponId === "fireball") {
     let main, side;
-    if (level === 2 && perk === "attack") { main = 130; side = 70; }
-    else if (perk === "attack") { main = 95; side = 40; }
-    else if (level === 2) { main = 85; side = 45; }
-    else { main = 60; side = 30; }
+    if (level === 2 && perk === "attack") { main = 80; side = 50; }
+    else if (perk === "attack") { main = 60; side = 40; }
+    else if (level === 2) { main = 50; side = 30; }
+    else { main = 40; side = 20; }
     hitTile(row, col, main, true);
     getNeighbors(grid, row, col).forEach(n => hitTile(n.row, n.col, side));
   }
 
   else if (weaponId === "cannon") {
     let main;
-    if (level === 2 && perk === "attack") { main = 160; }
-    else if (perk === "attack") { main = 100; }
-    else if (level === 2) { main = 110; }
-    else { main = 90; }
+    if (level === 2 && perk === "attack") { main = 100; }
+    else if (perk === "attack") { main = 80; }
+    else if (level === 2) { main = 75; }
+    else { main = 60; }
     hitTile(row, col, main, true);
     if (level === 2 && perk === "attack") {
       // also hit strongest neighbor
@@ -162,9 +162,9 @@ function applyWeapon(grid, weaponId, level, perk, target, extra) {
 
   else if (weaponId === "rocket") {
     let side;
-    if (level === 2 && perk === "attack") side = 50;
-    else if (perk === "attack") side = 20;
-    else if (level === 2) side = 30;
+    if (level === 2 && perk === "attack") side = 45;
+    else if (perk === "attack") side = 25;
+    else if (level === 2) side = 20;
     else side = 0;
     g[row][col] = { ...g[row][col], hp: 0, shield: 0, destroyed: true };
     if (side > 0) getNeighbors(grid, row, col).forEach(n => hitTile(n.row, n.col, side));
@@ -230,19 +230,19 @@ function applyHeal(grid, weaponId, level, perk, target) {
 
   if (weaponId === "regenerate") {
     let main, side;
-    if (level === 2 && perk === "heal") { main = 80; side = 55; }
+    if (level === 2 && perk === "heal") { main = 90; side = 60; }
     else if (perk === "heal") { main = 70; side = 40; }
     else if (level === 2) { main = 65; side = 35; }
-    else { main = 50; side = 20; }
+    else { main = 55; side = 25; }
     g[row][col] = cap(g[row][col], main);
     getNeighbors(grid, row, col).forEach(n => { if (!n.destroyed) g[n.row][n.col] = cap(g[n.row][n.col], side); });
   }
 
   else if (weaponId === "aroma") {
     let amt;
-    if (level === 2 && perk === "heal") amt = 75;
-    else if (perk === "heal") amt = 70;
-    else if (level === 2) amt = 65;
+    if (level === 2 && perk === "heal") amt = 95;
+    else if (perk === "heal") amt = 80;
+    else if (level === 2) amt = 70;
     else amt = 60;
     g[row][col] = cap(g[row][col], amt);
     getNeighbors(grid, row, col).forEach(n => { if (!n.destroyed) g[n.row][n.col] = cap(g[n.row][n.col], amt); });
@@ -250,9 +250,9 @@ function applyHeal(grid, weaponId, level, perk, target) {
 
   else if (weaponId === "quickheal") {
     let side;
-    if (level === 2 && perk === "heal") side = 40;
-    else if (perk === "heal") side = 20;
-    else if (level === 2) side = 15;
+    if (level === 2 && perk === "heal") side = 50;
+    else if (perk === "heal") side = 35;
+    else if (level === 2) side = 25;
     else side = 0;
     g[row][col] = { ...g[row][col], hp: g[row][col].maxHp };
     if (side > 0) getNeighbors(grid, row, col).forEach(n => { if (!n.destroyed) g[n.row][n.col] = cap(g[n.row][n.col], side); });
