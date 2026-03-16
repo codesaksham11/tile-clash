@@ -125,7 +125,7 @@ function applyWeapon(grid, weaponId, level, perk, target, extra) {
   else if (weaponId === "cannon") {
     let main;
     if (level === 2 && perk === "attack") { main = 100; }
-    else if (perk === "attack") { main = 80; }
+    else if (perk === "attack") { main = 90; }
     else if (level === 2) { main = 75; }
     else { main = 60; }
     hitTile(row, col, main, true);
